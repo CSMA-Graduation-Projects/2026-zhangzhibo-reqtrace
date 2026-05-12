@@ -1,0 +1,163 @@
+<!--变更分析页面-->
+<!--
+GET /api/v1/requirements/：             加载需求列表
+PUT /api/v1/requirements/{req_code}：   提交需求修改并生成变更事件和版本记录
+GET /api/v1/events?page=1&page_size=10：加载最近变更事件
+/ui/impact-graph/{req_code}：           跳转查看指定需求的影响波及图
+-->
+{% extends "base.html" %}
+{% block title %}变更分析{% endblock %}
+
+{% block content %}
+<div class="page-banner">
+    <h1 class="page-banner-title">变更分析</h1>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-12">
+        <div class="metric-strip">
+            <div class="metric-chip">
+                <div class="label">需求点数量</div>
+                <div class="value" id="req_total">-</div>
+                <div class="hint">当前可变更对象</div>
+            </div>
+            <div class="metric-chip">
+                <div class="label">最近事件</div>
+                <div class="value" id="event_total">-</div>
+                <div class="hint">需求变更记录</div>
+            </div>
+            <div class="metric-chip">
+                <div class="label">分析模式</div>
+                <div class="value fs-6">文档版本链</div>
+                <div class="hint">仅基于需求文档</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-5">
+        <div class="card panel-card h-100">
+            <div class="card-header">
+                <div class="panel-title">提交需求变更</div>
+                <div class="panel-sub">选择已经提取/录入的需求点，修改标题或描述，系统会记录新版本。</div>
+            </div>
+            <div class="card-body">
+                <div class="compact-form">
+                    <div>
+                        <label class="form-label">选择需求</label>
+                        <select id="req_select" class="form-select" onchange="fillSelectedReq()"></select>
+                    </div>
+                    <div>
+                        <label class="form-label">变更后标题</label>
+                        <input id="new_title" class="form-control" placeholder="请输入变更后的标题">
+                    </div>
+                    <div>
+                        <label class="form-label">变更后描述</label>
+                        <textarea id="new_desc" class="form-control" rows="8" placeholder="请输入变更后的需求描述"></textarea>
+                    </div>
+                    <div class="d-grid gap-2">
+                        <button id="submitChangeBtn" class="btn btn-primary" onclick="submitChange()">
+                            <i class="bi bi-lightning-charge"></i> 保存变更并生成波及图链路
+                        </button>
+                        <a id="graphLink" class="btn btn-outline-secondary" href="/ui/impact-graph">
+                            <i class="bi bi-diagram-3"></i> 查看完整影响波及图
+                        </a>
+                    </div>
+                </div>
+                <div id="change_msg" class="mt-3"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-7">
+        <div class="card panel-card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                <div>
+                    <div class="panel-title">最近变更事件</div>
+                </div>
+                <button class="btn btn-outline-primary btn-sm" onclick="loadEvents()"><i class="bi bi-arrow-clockwise"></i> 刷新事件</button>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead>
+                        <tr><th style="width:70px;">ID</th><th style="width:110px;">需求</th><th style="width:110px;">类型</th><th>变更后内容</th><th style="width:120px;">操作</th></tr>
+                        </thead>
+                        <tbody id="events_tbody"><tr><td colspan="5" class="data-empty">加载中...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+    const API = "/api/v1";
+    let reqRows = [];
+    function esc(s){ return (s || "").toString().replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;"); }
+    function setMsg(type, text){ document.getElementById("change_msg").innerHTML = `<div class="alert alert-${type} py-2 mb-0">${esc(text)}</div>`; }
+    function setBusy(busy){ const btn=document.getElementById("submitChangeBtn"); if(!btn.dataset.defaultHtml)btn.dataset.defaultHtml=btn.innerHTML; btn.disabled=!!busy; btn.innerHTML=busy?`保存中 <span class="spinner-border spinner-border-sm ms-2"></span>`:btn.dataset.defaultHtml; }
+
+    async function loadRequirements(){
+        const res = await fetch(`${API}/requirements/`);
+        reqRows = await res.json().catch(() => ([]));
+        document.getElementById("req_total").innerText = Array.isArray(reqRows) ? reqRows.length : 0;
+        const sel = document.getElementById("req_select");
+        if (!Array.isArray(reqRows) || !reqRows.length){
+            sel.innerHTML = `<option value="">暂无需求，请先上传文档</option>`;
+            setMsg("warning", "暂无可变更需求，请先在需求管理页上传需求文档。");
+            return;
+        }
+        sel.innerHTML = reqRows.map(r => `<option value="${esc(r.req_code)}">${esc(r.req_code)} - ${esc(r.title)}</option>`).join("");
+        fillSelectedReq();
+    }
+    function fillSelectedReq(){
+        const code = document.getElementById("req_select").value;
+        const row = reqRows.find(r => r.req_code === code);
+        document.getElementById("new_title").value = row ? row.title : "";
+        document.getElementById("new_desc").value = row ? row.description : "";
+        document.getElementById("graphLink").href = code ? `/ui/impact-graph/${encodeURIComponent(code)}` : "/ui/impact-graph";
+    }
+    async function submitChange(){
+        const req_code = document.getElementById("req_select").value;
+        const title = document.getElementById("new_title").value.trim();
+        const description = document.getElementById("new_desc").value.trim();
+        if (!req_code){ setMsg("warning", "请先选择需求"); return; }
+        if (!title){ setMsg("warning", "变更后标题不能为空"); return; }
+        setBusy(true);
+        setMsg("info", `正在保存 ${req_code} 的变更，并更新版本链...`);
+        try{
+            const res = await fetch(`${API}/requirements/${encodeURIComponent(req_code)}`, {
+                method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify({title, description})
+            });
+            const data = await res.json().catch(() => ({}));
+            if(!res.ok){ setMsg("danger", "变更失败：" + (data.detail || JSON.stringify(data))); return; }
+            setMsg("success", `变更成功：${req_code} 已生成新版本，影响波及图已追加变更节点。`);
+            await Promise.all([loadRequirements(), loadEvents()]);
+        } finally { setBusy(false); }
+    }
+    async function loadEvents(){
+        const tb = document.getElementById("events_tbody");
+        tb.innerHTML = `<tr><td colspan="5" class="data-empty">加载中...</td></tr>`;
+        const res = await fetch(`${API}/events?page=1&page_size=10`);
+        const data = await res.json().catch(() => ([]));
+        if(!res.ok){ tb.innerHTML = `<tr><td colspan="5" class="data-empty text-danger">加载失败</td></tr>`; return; }
+        document.getElementById("event_total").innerText = data.length;
+        if(!data.length){ tb.innerHTML = `<tr><td colspan="5" class="data-empty">暂无事件</td></tr>`; return; }
+        tb.innerHTML = data.map(e => `
+            <tr>
+                <td>${esc(e.id)}</td>
+                <td><span class="badge text-bg-primary">${esc(e.req_code)}</span></td>
+                <td>${esc(e.change_type)}</td>
+                <td class="small text-muted wrap-anywhere">${esc(e.new_text || "-")}</td>
+                <td><a class="btn btn-outline-primary btn-sm" href="/ui/impact-graph/${encodeURIComponent(e.req_code)}">查看图</a></td>
+            </tr>
+        `).join("");
+    }
+    loadRequirements();
+    loadEvents();
+</script>
+{% endblock %}

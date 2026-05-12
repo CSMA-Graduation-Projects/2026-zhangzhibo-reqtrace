@@ -1,0 +1,167 @@
+<!--系统首页-->
+<!--
+GET /api/v1/requirements/：                      加载需求列表，统计需求数量
+GET /api/v1/events?page=1&page_size=10：         加载最近变更事件，统计变更数量
+GET /api/v1/documents：                          加载上传文档列表，统计文档数量
+GET /api/v1/trace-versions/requirement-versions：加载需求版本记录，统计版本数量
+-->
+{% extends "base.html" %}
+{% block title %}首页总览{% endblock %}
+
+{% block content %}
+<div class="page-banner">
+    <div class="page-banner-title">首页总览</div>
+    <div class="page-actions">
+        <a class="btn btn-primary btn-sm" href="/ui/change"><i class="bi bi-lightning-charge"></i> 进入变更分析</a>
+        <a class="btn btn-outline-primary btn-sm" href="/ui/suggest"><i class="bi bi-diagram-3"></i> 进入追溯维护</a>
+        <a class="btn btn-outline-secondary btn-sm" href="/ui/evaluation"><i class="bi bi-robot"></i> 查看AI评估</a>
+    </div>
+</div>
+
+<div class="metric-strip mb-3">
+    <div class="metric-chip">
+        <div class="label">需求基线数</div>
+        <div class="value" id="home_req_total">-</div>
+        <div class="hint">来自需求列表</div>
+    </div>
+    <div class="metric-chip">
+        <div class="label">变更事件数</div>
+        <div class="value" id="home_event_total">-</div>
+        <div class="hint">需求变更记录</div>
+    </div>
+    <div class="metric-chip">
+        <div class="label">文档数量</div>
+        <div class="value" id="home_report_total">-</div>
+        <div class="hint">已上传需求文档</div>
+    </div>
+    <div class="metric-chip">
+        <div class="label">追溯版本数</div>
+        <div class="value" id="home_version_total">-</div>
+        <div class="hint">需求版本记录</div>
+    </div>
+</div>
+
+<div class="overview-grid mb-3">
+    <div class="card h-100">
+        <div class="card-header">
+            <div class="panel-title">需求管理</div>
+            <div class="panel-sub">上传需求文档，提取并维护文档下的需求点。</div>
+        </div>
+        <div class="card-body panel-stack">
+            <div class="flow-mini">
+                <span class="flow-tag">文档上传</span>
+                <span class="flow-tag">需求提取</span>
+                <span class="flow-tag">需求维护</span>
+                <span class="flow-tag">AI文档分析</span>
+            </div>
+            <div class="text-muted small">按文档维护需求点。</div>
+            <a class="btn btn-primary mt-auto w-100" href="/ui/requirements">进入模块</a>
+        </div>
+    </div>
+
+    <div class="card h-100">
+        <div class="card-header">
+            <div class="panel-title">变更分析</div>
+            <div class="panel-sub">基于文档需求点记录变更事件，并更新需求版本链。</div>
+        </div>
+        <div class="card-body panel-stack">
+            <div class="flow-mini">
+                <span class="flow-tag">选择需求</span>
+                <span class="flow-tag">修改内容</span>
+                <span class="flow-tag">记录事件</span>
+                <span class="flow-tag">查看图谱</span>
+            </div>
+            <div class="text-muted small">查看需求变更事件和波及图。</div>
+            <a class="btn btn-primary mt-auto w-100" href="/ui/change">进入模块</a>
+        </div>
+    </div>
+
+    <div class="card h-100">
+        <div class="card-header">
+            <div class="panel-title">追溯维护</div>
+            <div class="panel-sub">集中查看文档需求的追溯版本和变更详情。</div>
+        </div>
+        <div class="card-body panel-stack">
+            <div class="flow-mini">
+                <span class="flow-tag">版本列表</span>
+                <span class="flow-tag">文档来源</span>
+                <span class="flow-tag">变更内容</span>
+                <span class="flow-tag">前后对比</span>
+            </div>
+            <div class="text-muted small">查看版本记录和变更内容。</div>
+            <a class="btn btn-primary mt-auto w-100" href="/ui/suggest">进入模块</a>
+        </div>
+    </div>
+
+    <div class="card h-100">
+        <div class="card-header">
+            <div class="panel-title">AI评估</div>
+            <div class="panel-sub">对比系统提取结果与人工确认基准，计算 Precision、Recall 和 F1。</div>
+        </div>
+        <div class="card-body panel-stack">
+            <div class="flow-mini">
+                <span class="flow-tag">人工基准</span>
+                <span class="flow-tag">指标计算</span>
+                <span class="flow-tag">评估报告</span>
+            </div>
+            <div class="text-muted small">查看文档提取评估结果。</div>
+            <a class="btn btn-primary mt-auto w-100" href="/ui/evaluation">进入模块</a>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header">
+        <div class="panel-title">主线流程</div>
+    </div>
+    <div class="card-body">
+        <div class="process-row">
+            <div class="process-step"><span>01</span><strong>需求管理</strong><small>上传文档并提取需求</small></div>
+            <div class="process-arrow"><i class="bi bi-arrow-right"></i></div>
+            <div class="process-step"><span>02</span><strong>变更分析</strong><small>记录需求版本变化</small></div>
+            <div class="process-arrow"><i class="bi bi-arrow-right"></i></div>
+            <div class="process-step"><span>03</span><strong>结果查看</strong><small>查看影响波及图</small></div>
+            <div class="process-arrow"><i class="bi bi-arrow-right"></i></div>
+            <div class="process-step"><span>04</span><strong>追溯维护</strong><small>查看追溯版本</small></div>
+            <div class="process-arrow"><i class="bi bi-arrow-right"></i></div>
+            <div class="process-step"><span>05</span><strong>AI评估</strong><small>查看评估结果</small></div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block script %}
+<script>
+const API = "/api/v1";
+
+<!--加载首页统计指标-->
+async function loadHomeMetrics(){
+    try{
+        const [reqRes, eventRes, reportRes, versionRes] = await Promise.all([
+            fetch(`${API}/requirements/`),
+            fetch(`${API}/events?page=1&page_size=10`),
+            fetch(`${API}/documents`),
+            fetch(`${API}/trace-versions/requirement-versions`)
+        ]);
+
+        const reqData = await reqRes.json().catch(()=> []);
+        const eventData = await eventRes.json().catch(()=> []);
+        const docData = await reportRes.json().catch(()=> []);
+        const versionData = await versionRes.json().catch(()=> []);
+
+        document.getElementById("home_req_total").innerText = Array.isArray(reqData) ? reqData.length : "-";
+        document.getElementById("home_event_total").innerText = Array.isArray(eventData) ? eventData.length : "-";
+        document.getElementById("home_report_total").innerText = Array.isArray(docData) ? docData.length : "-";
+        document.getElementById("home_version_total").innerText = Array.isArray(versionData) ? versionData.length : "-";
+    }catch(e){
+        document.getElementById("home_req_total").innerText = "-";
+        document.getElementById("home_event_total").innerText = "-";
+        document.getElementById("home_report_total").innerText = "-";
+        document.getElementById("home_version_total").innerText = "-";
+    }
+}
+
+loadHomeMetrics();
+</script>
+{% endblock %}

@@ -1,0 +1,460 @@
+<!--AI评估页面-->
+<!--
+GET /api/v1/evaluation/documents：                        加载可评估文档列表
+GET /api/v1/evaluation/documents/{id}：                   加载某份文档的系统提取结果、人工基准、最新评估记录
+POST /api/v1/evaluation/documents/{id}/benchmark/from-ai：根据系统提取结果生成初始人工基准
+POST /api/v1/evaluation/documents/{id}/benchmark：        保存用户编辑后的人工基准
+POST /api/v1/evaluation/documents/{id}/run：              运行 AI评估，计算 Precision、Recall、F1
+-->
+{% extends "base.html" %}
+{% block title %}AI评估{% endblock %}
+
+{% block content %}
+<div class="page-banner">
+    <h1 class="page-banner-title">AI评估</h1>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-12">
+        <div class="metric-strip">
+            <div class="metric-chip">
+                <div class="label">文档数量</div>
+                <div class="value" id="doc_count">-</div>
+                <div class="hint">已上传需求文档</div>
+            </div>
+            <div class="metric-chip">
+                <div class="label">已建基准</div>
+                <div class="value" id="bench_doc_count">-</div>
+                <div class="hint">人工确认过的文档</div>
+            </div>
+            <div class="metric-chip">
+                <div class="label">Precision</div>
+                <div class="value" id="metric_precision">-</div>
+                <div class="hint">精确率</div>
+            </div>
+            <div class="metric-chip">
+                <div class="label">Recall</div>
+                <div class="value" id="metric_recall">-</div>
+                <div class="hint">召回率</div>
+            </div>
+            <div class="metric-chip">
+                <div class="label">F1</div>
+                <div class="value" id="metric_f1">-</div>
+                <div class="hint">综合值</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="two-col-compact">
+    <div class="card panel-card">
+        <div class="card-header d-flex justify-content-between align-items-center gap-2">
+            <div>
+                <div class="panel-title">文档列表</div>
+                <div class="panel-sub">选择一个文档后建立基准并运行评估。</div>
+            </div>
+            <button class="btn btn-outline-primary btn-sm" onclick="loadDocuments()"><i class="bi bi-arrow-clockwise"></i></button>
+        </div>
+        <div class="card-body">
+            <div id="doc_list" class="list-compact">
+                <div class="data-empty">正在加载文档...</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section-split">
+        <div class="card panel-card">
+            <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                <div>
+                    <div class="panel-title">当前文档</div>
+                    <div class="panel-sub" id="current_doc_sub">请选择左侧文档。</div>
+                </div>
+                <div class="compact-toolbar">
+                    <button id="createBenchBtn" class="btn btn-outline-primary btn-sm" onclick="createBenchmarkFromAI(false)" disabled>
+                        <i class="bi bi-clipboard-check"></i> 从提取结果生成基准
+                    </button>
+                    <button id="overwriteBenchBtn" class="btn btn-outline-secondary btn-sm" onclick="createBenchmarkFromAI(true)" disabled>
+                        覆盖基准
+                    </button>
+                    <button id="saveBenchBtn" class="btn btn-primary btn-sm" onclick="saveBenchmark()" disabled>
+                        保存人工基准
+                    </button>
+                    <button id="runEvalBtn" class="btn btn-success btn-sm" onclick="runEvaluation()" disabled>
+                        <i class="bi bi-robot"></i> 运行AI评估
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="eval_status" class="alert alert-info py-2 mb-3">系统提取结果作为待评估结果；人工确认或修改后的需求列表作为基准答案。</div>
+                <div class="row g-3">
+                    <div class="col-lg-6">
+                        <div class="section-block h-100">
+                            <div class="section-title">系统提取结果</div>
+                            <div class="section-sub">只读，用于作为本次评估的预测结果。</div>
+                            <div id="ai_requirements" class="list-compact"></div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="section-block h-100">
+                            <div class="d-flex justify-content-between align-items-center gap-2 mb-1">
+                                <div>
+                                    <div class="section-title mb-0">人工确认基准</div>
+                                    <div class="section-sub mb-0">可直接确认，也可修改、删除或补充。</div>
+                                </div>
+                                <button id="addBenchBtn" class="btn btn-outline-primary btn-sm" onclick="addBenchmarkRow()" disabled>
+                                    <i class="bi bi-plus-lg"></i> 补充
+                                </button>
+                            </div>
+                            <div id="benchmark_editor" class="list-compact"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card panel-card">
+            <div class="card-header">
+                <div class="panel-title">评估结果</div>
+                <div class="panel-sub">展示 Precision、Recall、F1 以及匹配、误抽、漏抽明细。</div>
+            </div>
+            <div class="card-body">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                        <div class="metric-chip">
+                            <div class="label">Precision</div>
+                            <div class="value" id="result_precision">-</div>
+                            <div class="hint">TP / (TP + FP)</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="metric-chip">
+                            <div class="label">Recall</div>
+                            <div class="value" id="result_recall">-</div>
+                            <div class="hint">TP / (TP + FN)</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="metric-chip">
+                            <div class="label">F1</div>
+                            <div class="value" id="result_f1">-</div>
+                            <div class="hint">综合评价指标</div>
+                        </div>
+                    </div>
+                </div>
+                <div id="eval_summary" class="alert alert-secondary py-2 mb-3">暂无评估结果。</div>
+                <div class="row g-3">
+                    <div class="col-lg-4">
+                        <div class="section-block h-100">
+                            <div class="section-title">匹配成功</div>
+                            <div class="section-sub" id="matched_count">TP：-</div>
+                            <div id="matched_list" class="list-compact"></div>
+                        </div>
+                    </div>
+                    <div class="col-lg-4">
+                        <div class="section-block h-100">
+                            <div class="section-title">系统多提</div>
+                            <div class="section-sub" id="fp_count">FP：-</div>
+                            <div id="fp_list" class="list-compact"></div>
+                        </div>
+                    </div>
+                    <div class="col-lg-4">
+                        <div class="section-block h-100">
+                            <div class="section-title">系统漏提</div>
+                            <div class="section-sub" id="fn_count">FN：-</div>
+                            <div id="fn_list" class="list-compact"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card panel-card">
+            <div class="card-header">
+                <div class="panel-title">AI评估报告</div>
+                <div class="panel-sub">AI根据指标结果、差异明细和该文档的需求变更记录生成详细报告。</div>
+            </div>
+            <div class="card-body">
+                <div id="ai_eval_report" class="alert alert-light border mb-0" style="white-space:pre-line; line-height:1.75;">暂无AI评估报告。请先建立人工基准并运行AI评估。</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+const API = "/api/v1";
+let documents = [];
+let currentDocumentId = null;
+let currentDetail = null;
+let benchmarkRows = [];
+
+function esc(s){
+    return (s || "").toString()
+        .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+function pct(v){
+    if(v === null || v === undefined || v === "") return "-";
+    return `${Number(v).toFixed(2)}%`;
+}
+function setBusy(btnId, busy, text){
+    const btn = document.getElementById(btnId);
+    if(!btn) return;
+    if(!btn.dataset.defaultHtml) btn.dataset.defaultHtml = btn.innerHTML;
+    btn.disabled = !!busy;
+    btn.innerHTML = busy ? `${esc(text || "处理中")} <span class="spinner-border spinner-border-sm ms-2"></span>` : btn.dataset.defaultHtml;
+}
+function setActionEnabled(enabled){
+    ["createBenchBtn","overwriteBenchBtn","saveBenchBtn","runEvalBtn","addBenchBtn"].forEach(id => {
+        const el = document.getElementById(id);
+        if(el) el.disabled = !enabled;
+    });
+}
+
+
+async function loadDocuments(){
+    const box = document.getElementById("doc_list");
+    box.innerHTML = `<div class="data-empty">正在加载文档...</div>`;
+    try{
+        const res = await fetch(`${API}/evaluation/documents`);
+        const payload = await res.json().catch(() => ([]));
+        if(!res.ok) throw new Error(payload.detail || JSON.stringify(payload));
+        documents = Array.isArray(payload) ? payload : [];
+        document.getElementById("doc_count").innerText = documents.length;
+        document.getElementById("bench_doc_count").innerText = documents.filter(d => d.has_benchmark).length;
+        renderDocuments();
+        if(!currentDocumentId && documents.length){
+            await selectDocument(documents[0].id);
+        }
+    }catch(e){
+        box.innerHTML = `<div class="alert alert-danger py-2">文档列表加载失败：${esc(e.message)}</div>`;
+    }
+}
+function renderDocuments(){
+    const box = document.getElementById("doc_list");
+    if(!documents.length){
+        box.innerHTML = `<div class="data-empty">暂无文档，请先到需求管理页面上传需求文档。</div>`;
+        return;
+    }
+    box.innerHTML = documents.map(d => {
+        const active = Number(d.id) === Number(currentDocumentId);
+        const rec = d.latest_record;
+        return `<div class="item-card ${active ? 'border-primary' : ''}" role="button" onclick="selectDocument(${d.id})">
+            <div class="d-flex justify-content-between align-items-start gap-2">
+                <div class="min-w-0">
+                    <div class="item-title wrap-anywhere">${esc(d.original_filename || d.doc_code)}</div>
+                    <div class="item-meta">ID：${d.id}　提取：${d.ai_count}　人工基准：${d.benchmark_count}</div>
+                </div>
+                <span class="badge ${d.has_benchmark ? 'text-bg-success' : 'text-bg-light'}">${d.has_benchmark ? '已建基准' : '未建基准'}</span>
+            </div>
+            <div class="item-desc small">${rec ? `最近F1：${pct(rec.f1)}` : '暂无评估记录'}</div>
+        </div>`;
+    }).join("");
+}
+async function selectDocument(id){
+    currentDocumentId = id;
+    renderDocuments();
+    setActionEnabled(false);
+    document.getElementById("current_doc_sub").innerText = `正在加载文档 ID：${id}`;
+    try{
+        const res = await fetch(`${API}/evaluation/documents/${id}`);
+        if(!res.ok) throw new Error(await res.text());
+        currentDetail = await res.json();
+        benchmarkRows = (currentDetail.benchmarks || []).map(x => ({
+            benchmark_code: x.benchmark_code || x.req_code || "",
+            title: x.title || "",
+            description: x.description || ""
+        }));
+        const doc = currentDetail.document || {};
+        document.getElementById("current_doc_sub").innerText = `文档ID：${doc.id}｜${doc.original_filename || doc.doc_code}`;
+        renderAiRequirements();
+        renderBenchmarkEditor();
+        renderRecord(currentDetail.latest_record, currentDetail.ai_report);
+        setActionEnabled(true);
+    }catch(e){
+        document.getElementById("eval_status").className = "alert alert-danger py-2 mb-3";
+        document.getElementById("eval_status").innerText = `文档加载失败：${e.message}`;
+    }
+}
+function renderAiRequirements(){
+    const box = document.getElementById("ai_requirements");
+    const rows = currentDetail?.ai_requirements || [];
+    if(!rows.length){
+        box.innerHTML = `<div class="data-empty">该文档未提取到需求点。</div>`;
+        return;
+    }
+    box.innerHTML = rows.map(r => `<div class="item-card">
+        <div class="d-flex justify-content-between align-items-start gap-2">
+            <div class="item-title">${esc(r.req_code)}　${esc(r.title)}</div>
+            <span class="badge text-bg-primary">提取</span>
+        </div>
+        <div class="item-desc">${esc(r.description)}</div>
+    </div>`).join("");
+}
+function renderBenchmarkEditor(){
+    const box = document.getElementById("benchmark_editor");
+    if(!benchmarkRows.length){
+        box.innerHTML = `<div class="data-empty">暂无人工基准。可点击“从提取结果生成基准”，再确认或修改。</div>`;
+        return;
+    }
+    box.innerHTML = benchmarkRows.map((r, idx) => `<div class="item-card" data-index="${idx}">
+        <div class="row g-2">
+            <div class="col-md-3">
+                <label class="form-label small text-muted">编号</label>
+                <input class="form-control form-control-sm bench-code" value="${esc(r.benchmark_code)}" oninput="syncBenchmarkFromDom()">
+            </div>
+            <div class="col-md-9">
+                <label class="form-label small text-muted">标题</label>
+                <input class="form-control form-control-sm bench-title" value="${esc(r.title)}" oninput="syncBenchmarkFromDom()">
+            </div>
+            <div class="col-12">
+                <label class="form-label small text-muted">描述</label>
+                <textarea class="form-control form-control-sm bench-desc" rows="3" oninput="syncBenchmarkFromDom()">${esc(r.description)}</textarea>
+            </div>
+            <div class="col-12 d-flex justify-content-end">
+                <button class="btn btn-outline-danger btn-sm" onclick="removeBenchmarkRow(${idx})"><i class="bi bi-trash"></i> 删除</button>
+            </div>
+        </div>
+    </div>`).join("");
+}
+function syncBenchmarkFromDom(){
+    const cards = document.querySelectorAll("#benchmark_editor .item-card");
+    benchmarkRows = Array.from(cards).map(card => ({
+        benchmark_code: card.querySelector(".bench-code")?.value || "",
+        title: card.querySelector(".bench-title")?.value || "",
+        description: card.querySelector(".bench-desc")?.value || ""
+    }));
+}
+function addBenchmarkRow(){
+    syncBenchmarkFromDom();
+    benchmarkRows.push({benchmark_code:`B${benchmarkRows.length + 1}`, title:"", description:""});
+    renderBenchmarkEditor();
+}
+function removeBenchmarkRow(idx){
+    syncBenchmarkFromDom();
+    benchmarkRows.splice(idx, 1);
+    renderBenchmarkEditor();
+}
+async function createBenchmarkFromAI(overwrite){
+    if(!currentDocumentId) return;
+    if(overwrite && !confirm("确定要用系统提取结果覆盖当前人工基准吗？")) return;
+    setBusy(overwrite ? "overwriteBenchBtn" : "createBenchBtn", true, "生成中");
+    try{
+        const res = await fetch(`${API}/evaluation/documents/${currentDocumentId}/benchmark/from-ai`, {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({overwrite})
+        });
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.detail || JSON.stringify(data));
+        currentDetail = data;
+        benchmarkRows = (data.benchmarks || []).map(x => ({benchmark_code:x.benchmark_code || x.req_code || "", title:x.title || "", description:x.description || ""}));
+        renderBenchmarkEditor();
+        document.getElementById("eval_status").className = "alert alert-success py-2 mb-3";
+        document.getElementById("eval_status").innerText = "已根据系统提取结果生成/加载人工确认基准，可以直接保存或继续修改。";
+        await loadDocuments();
+    }catch(e){
+        alert(`生成基准失败：${e.message}`);
+    }finally{
+        setBusy(overwrite ? "overwriteBenchBtn" : "createBenchBtn", false);
+    }
+}
+async function saveBenchmark(){
+    if(!currentDocumentId) return;
+    syncBenchmarkFromDom();
+    const clean = benchmarkRows.filter(x => (x.title || x.description || x.benchmark_code).trim());
+    setBusy("saveBenchBtn", true, "保存中");
+    try{
+        const res = await fetch(`${API}/evaluation/documents/${currentDocumentId}/benchmark`, {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({items: clean})
+        });
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.detail || JSON.stringify(data));
+        currentDetail = data;
+        benchmarkRows = (data.benchmarks || []).map(x => ({benchmark_code:x.benchmark_code || x.req_code || "", title:x.title || "", description:x.description || ""}));
+        renderBenchmarkEditor();
+        document.getElementById("eval_status").className = "alert alert-success py-2 mb-3";
+        document.getElementById("eval_status").innerText = "人工确认基准已保存。";
+        await loadDocuments();
+    }catch(e){
+        alert(`保存基准失败：${e.message}`);
+    }finally{
+        setBusy("saveBenchBtn", false);
+    }
+}
+async function runEvaluation(){
+    if(!currentDocumentId) return;
+    setBusy("runEvalBtn", true, "运行中");
+    setActionEnabled(false);
+    document.getElementById("eval_status").className = "alert alert-info py-2 mb-3";
+    document.getElementById("eval_status").innerText = "正在运行AI评估并生成AI评估报告，请稍候。";
+    await new Promise(resolve => setTimeout(resolve, 200));
+    try{
+        const res = await fetch(`${API}/evaluation/documents/${currentDocumentId}/run`, {method:"POST"});
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.detail || JSON.stringify(data));
+        renderRecord(data.record, data.ai_report);
+        const reportBox = document.getElementById("ai_eval_report");
+        if(reportBox){
+            reportBox.className = "alert alert-light border mb-0";
+        }
+        document.getElementById("eval_status").className = "alert alert-success py-2 mb-3";
+        document.getElementById("eval_status").innerText = "AI评估与评估报告生成已完成，结果已保存。";
+        await loadDocuments();
+    }catch(e){
+        document.getElementById("eval_status").className = "alert alert-danger py-2 mb-3";
+        document.getElementById("eval_status").innerText = `运行评估失败：${e.message}`;
+        alert(`运行评估失败：${e.message}`);
+    }finally{
+        setBusy("runEvalBtn", false);
+        setActionEnabled(!!currentDocumentId);
+    }
+}
+function itemSmall(item){
+    return `<div class="item-card">
+        <div class="item-title">${esc(item.req_code || item.benchmark_code || '')}　${esc(item.title || '')}</div>
+        <div class="item-desc small">${esc(item.description || '')}</div>
+    </div>`;
+}
+function renderRecord(record, reportText=null){
+    document.getElementById("metric_precision").innerText = record ? pct(record.precision) : "-";
+    document.getElementById("metric_recall").innerText = record ? pct(record.recall) : "-";
+    document.getElementById("metric_f1").innerText = record ? pct(record.f1) : "-";
+    document.getElementById("result_precision").innerText = record ? pct(record.precision) : "-";
+    document.getElementById("result_recall").innerText = record ? pct(record.recall) : "-";
+    document.getElementById("result_f1").innerText = record ? pct(record.f1) : "-";
+    document.getElementById("eval_summary").className = record ? "alert alert-primary py-2 mb-3" : "alert alert-secondary py-2 mb-3";
+    document.getElementById("eval_summary").innerText = record ? (record.ai_summary || "评估完成。") : "暂无评估结果。";
+
+    document.getElementById("matched_count").innerText = record ? `TP：${record.tp_count} / 提取 ${record.ai_count} / 基准 ${record.benchmark_count}` : "TP：-";
+    document.getElementById("fp_count").innerText = record ? `FP：${record.fp_count}` : "FP：-";
+    document.getElementById("fn_count").innerText = record ? `FN：${record.fn_count}` : "FN：-";
+
+    const matched = record?.matched || [];
+    document.getElementById("matched_list").innerHTML = matched.length ? matched.map(x => {
+        const ai = x.ai || {};
+        const bm = x.benchmark || {};
+        return `<div class="item-card">
+            <div class="item-title">${esc(ai.req_code || '')} ↔ ${esc(bm.benchmark_code || '')}</div>
+            <div class="item-meta">相似度：${Number(x.score || 0).toFixed(2)}</div>
+            <div class="item-desc small">提取：${esc(ai.title || '')}<br>基准：${esc(bm.title || '')}</div>
+        </div>`;
+    }).join("") : `<div class="data-empty">无</div>`;
+
+    const fp = record?.false_positive || [];
+    document.getElementById("fp_list").innerHTML = fp.length ? fp.map(itemSmall).join("") : `<div class="data-empty">无</div>`;
+    const fn = record?.false_negative || [];
+    document.getElementById("fn_list").innerHTML = fn.length ? fn.map(itemSmall).join("") : `<div class="data-empty">无</div>`;
+    const reportBox = document.getElementById("ai_eval_report");
+    if (reportBox) {
+        reportBox.innerText = reportText || record?.ai_report || "暂无AI评估报告。请先建立人工基准并运行AI评估。";
+    }
+}
+
+
+loadDocuments();
+</script>
+{% endblock %}

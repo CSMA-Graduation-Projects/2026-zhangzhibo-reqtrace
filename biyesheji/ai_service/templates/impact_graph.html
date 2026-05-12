@@ -1,0 +1,241 @@
+<!--影响波及图页面-->
+<!--
+GET /api/v1/graph/document-impact：                                     加载默认影响波及图
+GET /api/v1/graph/document-impact?document_id={id}：                    按文档 ID 加载完整影响波及图
+GET /api/v1/graph/document-impact?req_code={req_code}：                 按需求编号加载单链版本图
+GET /api/v1/graph/document-impact?req_code={req_code}&document_id={id}：按文档 ID 和需求编号组合加载图谱
+-->
+{% extends "base.html" %}
+{% block title %}影响波及图{% endblock %}
+
+{% block head %}
+<style>
+    .doc-graph-shell{position:relative; min-height:560px; overflow:auto; padding:18px; background:#f8fafc; border-radius:18px; border:1px solid #e5e7eb;}
+    .doc-graph-canvas{position:relative; display:flex; gap:46px; align-items:stretch; min-width:980px; min-height:540px; padding:14px 12px 42px;}
+    .graph-lines{position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:1; overflow:visible;}
+    .version-column{position:relative; z-index:2; width:310px; flex:0 0 310px; display:flex; flex-direction:column;}
+    .version-header{position:sticky; top:0; z-index:3; background:#fff; border:1px solid #dbeafe; border-radius:16px; padding:12px 14px; box-shadow:0 8px 22px rgba(15,23,42,.06); margin-bottom:14px;}
+    .version-title{font-weight:800; color:#1d4ed8;}
+    .version-count{font-size:12px; color:#64748b; margin-top:2px;}
+    .version-node-stack{flex:1; min-height:420px; display:flex; flex-direction:column; justify-content:center; gap:14px;}
+    .req-node{background:#fff; border:1px solid #d7e3f8; border-left:5px solid #3b82f6; border-radius:16px; padding:12px 12px; margin-bottom:0; box-shadow:0 10px 24px rgba(15,23,42,.06); min-height:108px;}
+    .req-node.doc-node{border-left-color:#8b5cf6; background:linear-gradient(180deg,#f8f5ff,#fff); min-height:130px;}
+    .req-node.changed{border-left-color:#f59e0b;}
+    .req-node.deleted{border-left-color:#ef4444; opacity:.78;}
+    .req-node.dimmed{opacity:.72;}
+    .req-node .code{font-weight:800; color:#0f172a;}
+    .req-node .badge-soft{font-size:12px; background:#eff6ff; color:#2563eb; border-radius:999px; padding:2px 8px;}
+    .req-node .title{font-weight:700; margin-top:6px; color:#1f2937;}
+    .req-node .desc{font-size:12px; color:#64748b; margin-top:6px; line-height:1.5; max-height:54px; overflow:hidden;}
+    .legend-dot{display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; vertical-align:middle;}
+    .side-note{font-size:13px; color:#64748b;}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-banner">
+    <h1 class="page-banner-title">影响波及图</h1>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-12">
+        <div class="metric-strip">
+            <div class="metric-chip">
+                <div class="label">图谱模式</div>
+                <div class="value fs-6">文档需求版本链</div>
+                <div class="hint">文档列 + 初始列 + 变更列</div>
+            </div>
+            <div class="metric-chip">
+                <div class="label">节点数</div>
+                <div class="value" id="node_count">-</div>
+                <div class="hint">需求版本节点</div>
+            </div>
+            <div class="metric-chip">
+                <div class="label">关系线</div>
+                <div class="value" id="edge_count">-</div>
+                <div class="hint">文档提取 + 同需求变更链</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card panel-card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+        <div>
+            <div class="panel-title">需求变更波及关系</div>
+            <div class="panel-sub">最前面是上传文档节点；文档节点连接提取出的需求点；每次修改后，右侧追加该需求的新版本节点；输入文档ID时展示完整图谱，输入需求编号时展示该需求单链。</div>
+        </div>
+        <div class="compact-toolbar">
+            <input id="filter_doc" class="form-control form-control-sm" style="width:120px;" placeholder="文档ID">
+            <input id="filter_req" class="form-control form-control-sm" style="width:150px;" placeholder="需求编号 R1" value="{{ req_code or '' }}">
+            <button class="btn btn-outline-primary btn-sm" onclick="loadGraph()"><i class="bi bi-arrow-clockwise"></i> 刷新图谱</button>
+            <a class="btn btn-outline-secondary btn-sm" href="/ui/requirements"><i class="bi bi-upload"></i> 上传文档</a>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="d-flex flex-wrap gap-3 mb-3 small text-muted">
+            <span><span class="legend-dot" style="background:#8b5cf6"></span>上传文档</span>
+            <span><span class="legend-dot" style="background:#3b82f6"></span>初始/当前需求</span>
+            <span><span class="legend-dot" style="background:#f59e0b"></span>修改后的需求版本</span>
+            <span><span class="legend-dot" style="background:#8b5cf6"></span>文档提取链路</span>
+            <span><span class="legend-dot" style="background:#64748b"></span>同一需求变更链路</span>
+        </div>
+        <div id="graph_status" class="side-note mb-2">正在加载...</div>
+        <div class="doc-graph-shell" id="graph_shell">
+            <div class="doc-graph-canvas" id="graph_canvas">
+                <svg class="graph-lines" id="graph_lines"></svg>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+{% endblock %}
+
+{% block script %}
+<script>
+    const API = "/api/v1";
+    const initialReqCode = "{{ req_code or '' }}";
+    const initialDocumentId = new URLSearchParams(window.location.search).get("document_id") || "";
+
+    function esc(s){
+        return (s || "").toString()
+            .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+    }
+
+    function shortText(s, n=92){
+        s = (s || "").toString();
+        return s.length > n ? s.slice(0, n) + "..." : s;
+    }
+
+    function renderColumns(data){
+        const canvas = document.getElementById("graph_canvas");
+        canvas.querySelectorAll(".version-column").forEach(x => x.remove());
+        const columns = data.columns || [];
+        const nodes = data.nodes || [];
+        if (!nodes.length){
+            document.getElementById("graph_status").innerText = "暂无需求版本数据，请先在需求管理页上传需求文档。";
+            return;
+        }
+        document.getElementById("graph_status").innerText = data.summary || "图谱加载完成";
+        columns.forEach(col => {
+            const colNodes = nodes.filter(n => Number(n.column) === Number(col.version_no));
+            const div = document.createElement("div");
+            div.className = "version-column";
+            div.dataset.version = col.version_no;
+            div.innerHTML = `
+                <div class="version-header">
+                    <div class="version-title">${esc(col.title)}</div>
+                    <div class="version-count">版本列 v${esc(col.version_no)} · ${colNodes.length} 个节点</div>
+                </div>
+                <div class="version-node-stack">
+                    ${colNodes.map(n => {
+                if (n.type === "DOCUMENT"){
+                    return `<div class="req-node doc-node" id="node-${esc(n.id)}" data-node-id="${esc(n.id)}">
+                                <div class="d-flex justify-content-between align-items-center gap-2">
+                                    <span class="code"><i class="bi bi-file-earmark-text"></i> 文档</span>
+                                    <span class="badge-soft">${esc(n.change_type || "已解析")}</span>
+                                </div>
+                                <div class="title">${esc(n.title)}</div>
+                                <div class="desc" title="${esc(n.description)}">${esc(shortText(n.description, 110))}</div>
+                                <div class="small text-muted mt-2">文档ID：${esc(n.document_id)} · ${esc(n.req_code)}</div>
+                            </div>`;
+                }
+                let cls = (n.change_type || "").includes("删除") ? "deleted" : (Number(n.version_no) > 1 ? "changed" : "");
+                return `<div class="req-node ${cls}" id="node-${esc(n.id)}" data-node-id="${esc(n.id)}">
+                            <div class="d-flex justify-content-between align-items-center gap-2">
+                                <span class="code">${esc(n.req_code)}</span>
+                                <span class="badge-soft">v${esc(n.version_no)} · ${esc(n.change_type || "需求")}</span>
+                            </div>
+                            <div class="title">${esc(n.title)}</div>
+                            <div class="desc" title="${esc(n.description)}">${esc(shortText(n.description))}</div>
+                        </div>`;
+            }).join("")}
+                </div>
+            `;
+            canvas.appendChild(div);
+        });
+    }
+
+    function linePath(x1, y1, x2, y2){
+        return `M ${x1} ${y1} L ${x2} ${y2}`;
+    }
+
+    function safeCssEscape(value){
+        const raw = String(value || "");
+        if (window.CSS && typeof CSS.escape === "function") return CSS.escape(raw);
+        return raw.replace(/([ #;?%&,.+*~\':"!^$[\]()=>|\/@])/g, "\\$1");
+    }
+
+    function drawLines(data){
+        const shell = document.getElementById("graph_shell");
+        const canvas = document.getElementById("graph_canvas");
+        const svg = document.getElementById("graph_lines");
+        const rect = canvas.getBoundingClientRect();
+        svg.setAttribute("width", Math.max(canvas.scrollWidth, shell.clientWidth));
+        svg.setAttribute("height", Math.max(canvas.scrollHeight, shell.clientHeight));
+        svg.innerHTML = "";
+        (data.edges || []).forEach((e, idx) => {
+            const s = canvas.querySelector(`[data-node-id="${safeCssEscape(e.source)}"]`);
+            const t = canvas.querySelector(`[data-node-id="${safeCssEscape(e.target)}"]`);
+            if (!s || !t) return;
+            const sr = s.getBoundingClientRect();
+            const tr = t.getBoundingClientRect();
+            const x1 = sr.right - rect.left + canvas.scrollLeft;
+            const y1 = sr.top + sr.height / 2 - rect.top + canvas.scrollTop;
+            const x2 = tr.left - rect.left + canvas.scrollLeft;
+            const y2 = tr.top + tr.height / 2 - rect.top + canvas.scrollTop;
+            const color = e.type === "DOC_TO_REQUIREMENT" ? "#8b5cf6" : "#64748b";
+            const dash = "";
+            const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            path.setAttribute("d", linePath(x1, y1, x2, y2));
+            path.setAttribute("fill", "none");
+            path.setAttribute("stroke", color);
+            path.setAttribute("stroke-width", "2.4");
+            if (dash) path.setAttribute("stroke-dasharray", dash);
+            path.setAttribute("opacity", "0.72");
+            const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+            title.textContent = `${e.label || e.type}: ${e.reason || ""}`;
+            path.appendChild(title);
+            svg.appendChild(path);
+        });
+    }
+
+    async function loadGraph(){
+        const req = document.getElementById("filter_req").value.trim();
+        const doc = document.getElementById("filter_doc").value.trim();
+        const params = new URLSearchParams();
+        if (req) params.set("req_code", req);
+        if (doc) params.set("document_id", doc);
+        const url = `${API}/graph/document-impact${params.toString() ? "?" + params.toString() : ""}`;
+        document.getElementById("graph_status").innerText = "正在加载图谱...";
+        try{
+            const res = await fetch(url);
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok){
+                document.getElementById("graph_status").innerText = "图谱加载失败：" + (data.detail || JSON.stringify(data));
+                return;
+            }
+            document.getElementById("node_count").innerText = (data.nodes || []).length;
+            document.getElementById("edge_count").innerText = (data.edges || []).length;
+            renderColumns(data);
+            setTimeout(() => { drawLines(data); }, 60);
+        }catch(e){
+            document.getElementById("graph_status").innerText = "图谱加载失败：" + e.message;
+        }
+    }
+
+    window.addEventListener("resize", () => loadGraph());
+    document.getElementById("graph_shell").addEventListener("scroll", () => {
+        // 滚动时不重新布局，避免闪烁；线条会跟随画布整体滚动。
+    });
+    if (initialReqCode) document.getElementById("filter_req").value = initialReqCode;
+    if (initialDocumentId) document.getElementById("filter_doc").value = initialDocumentId;
+    try{
+        loadGraph();
+    }catch(e){
+        document.getElementById("graph_status").innerText = "图谱初始化失败：" + e.message;
+    }
+</script>
+{% endblock %}

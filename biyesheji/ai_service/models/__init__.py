@@ -1,0 +1,7 @@
+# 统一导入模型
+from ai_service.models.change_event import ChangeEvent
+from ai_service.models.document_evaluation import DocumentEvaluationBenchmark, DocumentEvaluationRecord
+from ai_service.models.requirement import Requirement
+from ai_service.models.requirement_revision import RequirementRevision
+from ai_service.models.uploaded_document import UploadedDocument
+from ai_service.models.requirement_evidence import RequirementEvidence

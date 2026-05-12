@@ -1,0 +1,336 @@
+<!--追溯维护页面-->、
+<!--
+GET /api/v1/trace-versions/trace-matrix：                            加载追踪矩阵
+GET /api/v1/trace-versions/trace-matrix?document_id={id}：           按文档 ID 加载追踪矩阵
+GET /api/v1/trace-versions/trace-matrix?req_code={req_code}：        按需求编号加载追踪矩阵
+GET /api/v1/trace-versions/requirement-versions：                    加载需求版本列表
+GET /api/v1/trace-versions/requirement-versions?document_id={id}：   按文档 ID 加载需求版本链
+GET /api/v1/trace-versions/requirement-versions?req_code={req_code}：按需求编号加载需求版本链
+GET /api/v1/trace-versions/requirement-versions/{version_id}：       加载指定版本详情和变更差异
+/ui/impact-graph?document_id={id}：                                  跳转查看指定文档的完整影响波及图
+/ui/impact-graph/{req_code}：                                        跳转查看指定需求的单链影响波及图
+-->
+{% extends "base.html" %}
+{% block title %}追溯维护{% endblock %}
+
+{% block content %}
+    <div class="page-banner">
+        <h1 class="page-banner-title">追溯维护</h1>
+        <div class="page-actions">
+            <a class="btn btn-outline-secondary btn-sm" href="/ui/requirements"><i class="bi bi-card-checklist"></i> 返回需求管理</a>
+        </div>
+    </div>
+
+    <div class="metric-strip mb-3">
+        <div class="metric-chip">
+            <div class="label">版本总数</div>
+            <div class="value" id="metric_total">0</div>
+            <div class="hint">需求版本记录</div>
+        </div>
+        <div class="metric-chip">
+            <div class="label">当前版本</div>
+            <div class="value fs-6" id="metric_current">未选择</div>
+            <div class="hint">点击左侧版本后查看</div>
+        </div>
+        <div class="metric-chip">
+            <div class="label">所属文档</div>
+            <div class="value fs-6" id="metric_document">未选择</div>
+            <div class="hint">文档导入来源</div>
+        </div>
+        <div class="metric-chip">
+            <div class="label">变更类型</div>
+            <div class="value fs-6" id="metric_change_type">未选择</div>
+            <div class="hint">导入 / 修改 / 删除</div>
+        </div>
+    </div>
+
+    <div class="card panel-card mb-3">
+        <div class="card-header">
+            <div>
+                <div class="panel-title">追溯版本筛选</div>
+                <div class="panel-sub">可按文档 ID 或需求编号查看版本记录；不填则展示全部版本。</div>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label">文档 ID</label>
+                    <input id="filter_document_id" class="form-control" placeholder="例如 1">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">需求编号</label>
+                    <input id="filter_req_code" class="form-control" placeholder="例如 R1 / R2">
+                </div>
+                <div class="col-md-6">
+                    <div class="compact-toolbar">
+                        <button class="btn btn-primary" onclick="loadVersions()"><i class="bi bi-arrow-clockwise"></i> 刷新版本列表</button>
+                        <button class="btn btn-outline-secondary" onclick="clearFilters()"><i class="bi bi-x-circle"></i> 清空筛选</button>
+                    </div>
+                </div>
+            </div>
+            <div id="msg" class="mt-3"></div>
+        </div>
+    </div>
+
+
+    <div class="card panel-card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+            <div>
+                <div class="panel-title">追踪矩阵</div>
+                <div class="panel-sub">按文档需求展示版本状态、证据来源、人工基准和评估状态。</div>
+            </div>
+            <span class="badge text-bg-light" id="matrix_count">0 条</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                    <tr>
+                        <th style="width:90px;">文档ID</th>
+                        <th style="width:110px;">需求编号</th>
+                        <th>需求标题</th>
+                        <th style="width:120px;">版本状态</th>
+                        <th style="width:120px;">证据来源</th>
+                        <th style="width:120px;">基准状态</th>
+                        <th style="width:120px;">评估状态</th>
+                    </tr>
+                    </thead>
+                    <tbody id="trace_matrix_tbody"><tr><td colspan="7" class="data-empty">加载中...</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-xl-4">
+            <div class="card panel-card h-100">
+                <div class="card-header">
+                    <div>
+                        <div class="panel-title">追溯版本列表</div>
+                        <div class="panel-sub">点击版本查看该次变更详情。</div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div id="version_list" class="list-compact"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-8">
+            <div class="card panel-card h-100">
+                <div class="card-header">
+                    <div>
+                        <div class="panel-title">版本变更详情</div>
+                    </div>
+                    <span id="current_badge" class="badge text-bg-secondary">未选择版本</span>
+                </div>
+                <div class="card-body">
+                    <div id="detail_box"><div class="data-empty">请先从左侧选择一个追溯版本</div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block script %}
+<script>
+const API = "/api/v1";
+let currentVersionId = null;
+
+function esc(s){
+    return (s ?? "").toString()
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;");
+}
+
+function shortText(s, len=90){
+    s = (s ?? "").toString().trim();
+    return s.length > len ? s.slice(0, len) + "…" : s;
+}
+
+function setMsg(type, text){
+    const box = document.getElementById("msg");
+    box.innerHTML = text ? `<div class="alert alert-${type} py-2 mb-0">${esc(text)}</div>` : "";
+}
+
+function resetDetail(){
+    currentVersionId = null;
+    document.getElementById("current_badge").className = "badge text-bg-secondary";
+    document.getElementById("current_badge").innerText = "未选择版本";
+    document.getElementById("metric_current").innerText = "未选择";
+    document.getElementById("metric_document").innerText = "未选择";
+    document.getElementById("metric_change_type").innerText = "未选择";
+    document.getElementById("detail_box").innerHTML = `<div class="data-empty">请先从左侧选择一个追溯版本</div>`;
+}
+
+function clearFilters(){
+    document.getElementById("filter_document_id").value = "";
+    document.getElementById("filter_req_code").value = "";
+    loadVersions();
+}
+
+function buildQuery(){
+    const params = new URLSearchParams();
+    const docId = document.getElementById("filter_document_id").value.trim();
+    const reqCode = document.getElementById("filter_req_code").value.trim();
+    if (docId) params.set("document_id", docId);
+    if (reqCode) params.set("req_code", reqCode);
+    const q = params.toString();
+    return q ? `?${q}` : "";
+}
+
+
+function renderTraceMatrix(rows){
+    const tbody = document.getElementById("trace_matrix_tbody");
+    const count = document.getElementById("matrix_count");
+    if (!tbody) return;
+    count.innerText = `${rows.length || 0} 条`;
+    if (!rows.length){
+        tbody.innerHTML = `<tr><td colspan="7" class="data-empty">暂无追踪矩阵数据</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = rows.map(r => `
+        <tr>
+            <td>${esc(r.document_id ?? "-")}</td>
+            <td><span class="badge text-bg-primary">${esc(r.req_code || "-")}</span></td>
+            <td>
+                <div class="fw-semibold">${esc(r.title || "-")}</div>
+                <div class="small text-muted wrap-anywhere">${esc(r.document_name || "未绑定文档")}</div>
+            </td>
+            <td>${esc(r.version_status || "-")} / v${esc(r.current_version || "-")}</td>
+            <td>${r.has_evidence ? `<span class="badge text-bg-success">有证据</span><div class="small text-muted">${esc(r.source_location || "")}</div>` : `<span class="badge text-bg-warning">待补充</span>`}</td>
+            <td>${r.benchmark_status === "已建立基准" ? `<span class="badge text-bg-success">已建立</span>` : `<span class="badge text-bg-warning">未建立</span>`}</td>
+            <td>${r.evaluation_status === "已评估" ? `<span class="badge text-bg-success">已评估</span>` : `<span class="badge text-bg-secondary">未评估</span>`}</td>
+        </tr>
+    `).join("");
+}
+
+async function loadTraceMatrix(){
+    const res = await fetch(`${API}/trace-versions/trace-matrix${buildTraceMatrixQuery()}`);
+    const data = await res.json().catch(()=> ([]));
+    if (!res.ok){
+        const tbody = document.getElementById("trace_matrix_tbody");
+        if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="data-empty text-danger">追踪矩阵加载失败</td></tr>`;
+        return;
+    }
+    renderTraceMatrix(Array.isArray(data) ? data : []);
+}
+
+function buildTraceMatrixQuery(){
+    const params = new URLSearchParams();
+    const docId = document.getElementById("filter_document_id").value.trim();
+    if (docId) params.set("document_id", docId);
+    const q = params.toString();
+    return q ? `?${q}` : "";
+}
+
+function renderVersionList(data){
+    const box = document.getElementById("version_list");
+    document.getElementById("metric_total").innerText = String(data.length || 0);
+
+    if (!data.length){
+        box.innerHTML = `<div class="data-empty">暂无追溯版本记录</div>`;
+        return;
+    }
+
+    box.innerHTML = data.map(v => `
+        <button class="btn btn-outline-primary w-100 text-start mb-2" onclick="loadDetail(${Number(v.id)})">
+            <div class="d-flex justify-content-between align-items-start gap-2">
+                <div>
+                    <div class="fw-semibold">${esc(v.req_code)} · v${esc(v.version_no)} · ${esc(v.change_type || "变更")}</div>
+                    <div class="small text-muted wrap-anywhere">文档：${esc(v.document_name || "未绑定文档")}（ID：${esc(v.document_id ?? "-")}）</div>
+                    <div class="small text-muted wrap-anywhere">更改内容：${esc(v.change_summary || "需求内容")}</div>
+                </div>
+                <div class="small text-muted text-end" style="min-width: 118px;">${esc(v.created_at || "")}</div>
+            </div>
+        </button>
+    `).join("");
+}
+
+async function loadVersions(){
+    resetDetail();
+    setMsg("", "");
+    const res = await fetch(`${API}/trace-versions/requirement-versions${buildQuery()}`);
+    const data = await res.json().catch(()=> ([]));
+    if (!res.ok){
+        setMsg("danger", "加载追溯版本失败：" + (data.detail || JSON.stringify(data)));
+        return;
+    }
+    renderVersionList(Array.isArray(data) ? data : []);
+    await loadTraceMatrix();
+}
+
+function renderChanges(changes){
+    if (!changes || !changes.length){
+        return `<div class="data-empty">该版本没有记录到字段差异</div>`;
+    }
+    return changes.map(x => `
+        <div class="section-block mb-3">
+            <div class="section-title">${esc(x.field || "需求内容")}</div>
+            <div class="row g-3 align-items-stretch">
+                <div class="col-md-5">
+                    <div class="small text-muted mb-1">原来是什么</div>
+                    <div class="data-pre h-100" style="white-space:pre-wrap;">${esc(x.old_value || "无")}</div>
+                </div>
+                <div class="col-md-2 d-flex align-items-center justify-content-center">
+                    <span class="badge text-bg-light fs-6">→</span>
+                </div>
+                <div class="col-md-5">
+                    <div class="small text-muted mb-1">现在是什么</div>
+                    <div class="data-pre h-100" style="white-space:pre-wrap;">${esc(x.new_value || "无")}</div>
+                </div>
+            </div>
+        </div>
+    `).join("");
+}
+
+async function loadDetail(versionId){
+    const res = await fetch(`${API}/trace-versions/requirement-versions/${versionId}`);
+    const data = await res.json().catch(()=> ({}));
+    if (!res.ok){
+        document.getElementById("detail_box").innerHTML = `<div class="alert alert-danger">加载详情失败：${esc(data.detail || JSON.stringify(data))}</div>`;
+        return;
+    }
+
+    currentVersionId = versionId;
+    const v = data.version || {};
+    const doc = data.document || {};
+    const req = data.requirement || {};
+
+    document.getElementById("current_badge").className = "badge text-bg-primary";
+    document.getElementById("current_badge").innerText = `已选择 #${versionId}`;
+    document.getElementById("metric_current").innerText = `${esc(req.req_code || "-")} / v${esc(req.version_no || "-")}`;
+    document.getElementById("metric_document").innerText = doc.name || "未绑定文档";
+    document.getElementById("metric_change_type").innerText = req.change_type || "变更";
+
+    document.getElementById("detail_box").innerHTML = `
+        <div class="section-block mb-3">
+            <div class="section-title">版本基本信息</div>
+            <div class="row g-2 small">
+                <div class="col-md-6"><span class="text-muted">文档：</span>${esc(doc.name || "未绑定文档")}</div>
+                <div class="col-md-6"><span class="text-muted">文档ID：</span>${esc(doc.id ?? "-")} ${doc.doc_code ? `｜${esc(doc.doc_code)}` : ""}</div>
+                <div class="col-md-6"><span class="text-muted">需求编号：</span>${esc(req.req_code || "-")}</div>
+                <div class="col-md-6"><span class="text-muted">需求版本：</span>v${esc(req.version_no || "-")}</div>
+                <div class="col-md-6"><span class="text-muted">变更类型：</span>${esc(req.change_type || "变更")}</div>
+                <div class="col-md-6"><span class="text-muted">变更时间：</span>${esc(req.created_at || "-")}</div>
+                <div class="col-md-6"><span class="text-muted">事件ID：</span>${esc(req.event_id ?? "-")}</div>
+                <div class="col-md-6"><span class="text-muted">来源：</span>${esc(req.source_type || "-")}</div>
+            </div>
+        </div>
+        ${renderChanges(data.changes || [])}
+    `;
+}
+
+async function bootFromQuery(){
+    const qs = new URLSearchParams(window.location.search || "");
+    const reqCode = (qs.get("req_code") || "").trim();
+    const documentId = (qs.get("document_id") || "").trim();
+    if (reqCode) document.getElementById("filter_req_code").value = reqCode;
+    if (documentId) document.getElementById("filter_document_id").value = documentId;
+    await loadVersions();
+    await loadTraceMatrix();
+}
+
+bootFromQuery();
+</script>
+{% endblock %}
