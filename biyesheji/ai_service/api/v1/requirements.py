@@ -1,6 +1,7 @@
 #需求点的增删改查
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -66,6 +67,31 @@ def _make_unique_req_code_for_document(db: Session, req_code: str, document_id: 
     return candidate
 
 
+def _dt(value) -> str | None:
+    if not value:
+        return None
+    try:
+        return value.isoformat()
+    except Exception:
+        return str(value)
+
+
+def _natural_req_no(req_code: str | None) -> int:
+    """提取需求编号中的数字，用于 R1、R2、D12-R3 等编号自然排序。"""
+    text = (req_code or "").upper()
+    match = re.search(r"R\s*(\d+)", text)
+    if match:
+        return int(match.group(1))
+    match = re.search(r"(\d+)", text)
+    return int(match.group(1)) if match else 999999
+
+
+def _requirement_sort_key(req: Requirement) -> tuple[int, int, int, str]:
+    """最新文档排在前面，同一文档内按需求编号从小到大。"""
+    doc_id = int(getattr(req, "document_id", None) or 0)
+    return (-doc_id, _natural_req_no(req.req_code), int(req.id or 0), req.req_code or "")
+
+
 def _requirement_out(req: Requirement) -> dict:
     return {
         "id": req.id,
@@ -73,6 +99,8 @@ def _requirement_out(req: Requirement) -> dict:
         "title": req.title,
         "description": req.description,
         "document_id": getattr(req, "document_id", None),
+        "created_at": _dt(getattr(req, "created_at", None)),
+        "updated_at": _dt(getattr(req, "updated_at", None)),
     }
 
 
@@ -86,7 +114,7 @@ def list_requirements(
     stmt = select(Requirement)
     if document_id:
         stmt = stmt.where(Requirement.document_id == int(document_id))
-    rows = db.execute(stmt.order_by(Requirement.id.asc())).scalars().all()
+    rows = db.execute(stmt).scalars().all()
 
     if q:
         keyword = q.strip().lower()
@@ -96,6 +124,7 @@ def list_requirements(
             or keyword in (r.title or "").lower()
             or keyword in (r.description or "").lower()
         ]
+    rows = sorted(rows, key=_requirement_sort_key)
     return [_requirement_out(r) for r in rows]
 
 

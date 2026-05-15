@@ -1,6 +1,7 @@
-# 追踪矩阵和版本连
+# 追踪矩阵和版本链
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -25,6 +26,30 @@ def _dt(value) -> str | None:
         return value.isoformat()
     except Exception:
         return str(value)
+
+
+def _natural_req_no(req_code: str | None) -> int:
+    """提取 R1、R2、D12-R3 等编号中的 R 数字，用于自然排序。"""
+    text = (req_code or "").upper()
+    match = re.search(r"R\s*(\d+)", text)
+    if match:
+        return int(match.group(1))
+    match = re.search(r"(\d+)", text)
+    return int(match.group(1)) if match else 999999
+
+
+def _requirement_sort_key(req: Requirement) -> tuple[int, int, int, str]:
+    doc_id = int(getattr(req, "document_id", None) or 0)
+    return (-doc_id, _natural_req_no(req.req_code), int(req.id or 0), req.req_code or "")
+
+
+def _latest_document_id(db: Session) -> int | None:
+    latest = db.execute(
+        select(UploadedDocument.id)
+        .order_by(desc(UploadedDocument.id))
+        .limit(1)
+    ).scalar_one_or_none()
+    return int(latest) if latest else None
 
 
 def _parse_snapshot(text: str | None) -> dict[str, str]:
@@ -104,13 +129,23 @@ def _revision_summary(db: Session, rev: RequirementRevision) -> dict[str, Any]:
 @router.get("/trace-matrix")
 def list_light_trace_matrix(
     document_id: int | None = Query(default=None, description="可选：按上传文档 ID 过滤"),
+    req_code: str | None = Query(default=None, description="可选：按需求编号过滤，例如 R1"),
+    default_latest: bool = Query(default=True, description="未传文档 ID 时默认只展示最新文档"),
     db: Session = Depends(get_db),
 ):
-    """追踪矩阵：展示文档需求编号、版本状态、基准状态和评估状态。"""
-    req_stmt = select(Requirement).order_by(Requirement.document_id.asc(), Requirement.req_code.asc())
+    """追踪矩阵：默认展示最新文档下的需求追踪，避免一次性列出全部历史文档。"""
+    if document_id is None and not req_code and default_latest:
+        document_id = _latest_document_id(db)
+        if document_id is None:
+            return []
+
+    req_stmt = select(Requirement)
     if document_id:
         req_stmt = req_stmt.where(Requirement.document_id == int(document_id))
+    if req_code:
+        req_stmt = req_stmt.where(Requirement.req_code == req_code.strip())
     reqs = db.execute(req_stmt).scalars().all()
+    reqs = sorted(reqs, key=_requirement_sort_key)
 
     doc_ids = sorted({int(r.document_id) for r in reqs if getattr(r, "document_id", None)})
     for did in doc_ids:
@@ -179,8 +214,14 @@ def list_light_trace_matrix(
 def list_requirement_versions(
     document_id: int | None = Query(default=None, description="可选：按上传文档 ID 过滤"),
     req_code: str | None = Query(default=None, description="可选：按需求编号过滤，例如 R1"),
+    default_latest: bool = Query(default=True, description="未传文档 ID 和需求编号时默认只展示最新文档"),
     db: Session = Depends(get_db),
 ):
+    if document_id is None and not req_code and default_latest:
+        document_id = _latest_document_id(db)
+        if document_id is None:
+            return []
+
     stmt = select(RequirementRevision)
     if document_id:
         req_codes = db.execute(select(Requirement.req_code).where(Requirement.document_id == document_id)).scalars().all()

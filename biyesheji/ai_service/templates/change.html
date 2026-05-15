@@ -100,10 +100,20 @@ GET /api/v1/events?page=1&page_size=10：加载最近变更事件
     function esc(s){ return (s || "").toString().replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;"); }
     function setMsg(type, text){ document.getElementById("change_msg").innerHTML = `<div class="alert alert-${type} py-2 mb-0">${esc(text)}</div>`; }
     function setBusy(busy){ const btn=document.getElementById("submitChangeBtn"); if(!btn.dataset.defaultHtml)btn.dataset.defaultHtml=btn.innerHTML; btn.disabled=!!busy; btn.innerHTML=busy?`保存中 <span class="spinner-border spinner-border-sm ms-2"></span>`:btn.dataset.defaultHtml; }
+    function reqNo(code){ const m=(code || "").toString().toUpperCase().match(/R\s*(\d+)/); return m ? Number(m[1]) : 999999; }
+    function sortRequirements(rows){
+        return (Array.isArray(rows) ? rows : []).slice().sort((a,b) => {
+            const docDiff = Number(b.document_id || 0) - Number(a.document_id || 0);
+            if (docDiff !== 0) return docDiff;
+            const reqDiff = reqNo(a.req_code) - reqNo(b.req_code);
+            if (reqDiff !== 0) return reqDiff;
+            return Number(a.id || 0) - Number(b.id || 0);
+        });
+    }
 
     async function loadRequirements(){
         const res = await fetch(`${API}/requirements/`);
-        reqRows = await res.json().catch(() => ([]));
+        reqRows = sortRequirements(await res.json().catch(() => ([])));
         document.getElementById("req_total").innerText = Array.isArray(reqRows) ? reqRows.length : 0;
         const sel = document.getElementById("req_select");
         if (!Array.isArray(reqRows) || !reqRows.length){
@@ -111,7 +121,7 @@ GET /api/v1/events?page=1&page_size=10：加载最近变更事件
             setMsg("warning", "暂无可变更需求，请先在需求管理页上传需求文档。");
             return;
         }
-        sel.innerHTML = reqRows.map(r => `<option value="${esc(r.req_code)}">${esc(r.req_code)} - ${esc(r.title)}</option>`).join("");
+        sel.innerHTML = reqRows.map(r => `<option value="${esc(r.req_code)}">${esc(r.req_code)} - ${esc(r.title)}${r.document_id ? `（文档ID：${esc(r.document_id)}）` : ""}</option>`).join("");
         fillSelectedReq();
     }
     function fillSelectedReq(){
