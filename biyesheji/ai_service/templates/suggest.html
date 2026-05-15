@@ -5,8 +5,8 @@ GET /api/v1/trace-versions/trace-matrix?document_id={id}：           按文档 
 GET /api/v1/trace-versions/requirement-versions?document_id={id}：   按文档 ID 加载需求版本链
 GET /api/v1/trace-versions/requirement-versions?req_code={req_code}：按需求编号加载需求版本链
 GET /api/v1/trace-versions/requirement-versions/{version_id}：       加载指定版本详情和变更差异
-/ui/impact-graph?document_id={id}：                                  跳转查看指定文档的完整影响波及图
-/ui/impact-graph/{req_code}：                                        跳转查看指定需求的单链影响波及图
+/ui/impact-graph?document_id={id}：                                  跳转查看指定文档的完整需求变更追溯关系图
+/ui/impact-graph/{req_code}：                                        跳转查看指定需求的单链需求变更追溯关系图
 -->
 {% extends "base.html" %}
 {% block title %}追溯维护{% endblock %}

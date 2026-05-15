@@ -14,7 +14,7 @@ STATIC_DIR = BASE_DIR / "static"
 
 STATIC_DIR.mkdir(exist_ok=True)
 
-app = FastAPI(title="需求变更影响分析平台")
+app = FastAPI(title="软件需求变更管理与可追溯平台")
 app.include_router(api_router, prefix="/api/v1")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))

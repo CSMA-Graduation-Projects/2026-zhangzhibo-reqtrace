@@ -33,7 +33,7 @@ def _get_bool_env(name: str, default: bool = False) -> bool:
 
 
 class Settings:
-    APP_NAME: str = _get_env("APP_NAME", "需求变更影响分析平台")
+    APP_NAME: str = _get_env("APP_NAME", "软件需求变更管理与可追溯平台")
     APP_ENV: str = _get_env("APP_ENV", "dev")
     DEBUG: bool = _get_bool_env("DEBUG", default=(APP_ENV.lower() == "dev"))
 

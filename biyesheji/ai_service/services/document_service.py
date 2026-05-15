@@ -47,7 +47,7 @@ def save_upload_file(filename: str, content: bytes) -> tuple[str, Path]:
     # 先清理原文件名，防止特殊字符影响保存路径。
     safe = _safe_filename(filename)
     # 保留文件扩展名，后续解析时需要根据扩展名判断类型。
-    suffix = Path(safe).suffix or ".txt"
+    suffix = Path(safe).suffix.lower() or ".docx"
     stored = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}{suffix}"
     path = UPLOAD_DIR / stored
     # 文件内容按二进制写入，避免文本编码影响上传保存。
@@ -80,25 +80,13 @@ def _extract_docx_text(path: Path) -> str:
         return ""
 
 
-# 根据文件类型提取文本内容，优先解析 docx，其他文件按常见编码读取。
+# 提取上传 docx 文档中的文本内容。
+# 系统当前只支持 docx 需求文档，不再兼容 txt、md、csv、json 等普通文本格式。
 def extract_text_from_file(path: Path, filename: str = "") -> str:
     suffix = (Path(filename or path.name).suffix or "").lower()
-    # Word 文档优先走 docx 解析，解析失败再尝试普通文本读取。
-    if suffix == ".docx":
-        text = _extract_docx_text(path)
-        if text:
-            return text
-
-    data = path.read_bytes()
-    # 文本文档可能来自不同系统，因此按常见编码依次尝试。
-    for enc in ("utf-8", "utf-8-sig", "gb18030", "gbk", "latin1"):
-        try:
-            text = data.decode(enc, errors="ignore")
-            if text.strip():
-                return text.strip()
-        except Exception:
-            continue
-    return ""
+    if suffix != ".docx":
+        return ""
+    return _extract_docx_text(path)
 
 
 # 规范化需求编号。
@@ -587,8 +575,9 @@ def fallback_extract_requirements(text: str) -> dict[str, Any]:
     }
 
 
-# 需求点提取不调用 AI；AI 仅保留文档整体分析功能。
-def ai_extract_requirements(text: str) -> dict[str, Any]:
+# 规则需求提取入口。
+# 需求点提取不调用 AI；AI 仅保留文档整体分析和评估报告功能。
+def rule_extract_requirements(text: str) -> dict[str, Any]:
     text = (text or "").strip()
     if not text:
         return {"requirements": [], "relations": [], "extract_mode": "empty", "summary": "文档为空，未提取需求。"}
@@ -759,9 +748,9 @@ def _fallback_document_ai_analysis(doc: UploadedDocument, extracted: dict[str, A
         f"该文档《{doc.original_filename or doc.doc_code}》共识别出 {req_count} 个需求点，主要用于描述系统的功能范围、操作流程和业务约束。"
         f"{('文档摘要为：' + summary[:120]) if summary else ''}\n\n"
         f"二、核心内容\n"
-        f"文档重点涉及：{core}。这些内容构成后续需求维护、版本追溯、波及图展示和AI评估的数据基础。\n\n"
+        f"文档重点涉及：{core}。这些内容构成后续需求维护、版本追溯、需求变更追溯关系图展示和AI评估的数据基础。\n\n"
         f"三、维护建议\n"
-        f"建议后续维护时重点检查需求编号、标题和描述是否清晰一致；需求发生调整后，应及时查看追溯版本和影响波及图，保证变更过程可回溯。"
+        f"建议后续维护时重点检查需求编号、标题和描述是否清晰一致；需求发生调整后，应及时查看追溯版本和需求变更追溯关系图，保证变更过程可回溯。"
     )
     return _limit_generated_text(text, 420)
 
@@ -951,7 +940,7 @@ def record_requirement_revision(
 
 # 将文档提取结果导入数据库，写入需求、证据、变更事件和版本记录。
 def import_requirements_from_document(db: Session, *, doc: UploadedDocument, extracted: dict[str, Any]) -> dict[str, Any]:
-    # extracted 是 AI/规则提取后的临时结果，下面逐条写入业务表。
+    # extracted 是规则提取后的临时结果，下面逐条写入业务表。
     reqs = extracted.get("requirements", []) or []
     relations = extracted.get("relations", []) or []
     imported: list[dict[str, Any]] = []
@@ -1196,7 +1185,7 @@ def _repair_document_requirements_from_revisions(db: Session, document_id: int) 
 
     # 同一需求可能有多个版本，这里取最新版本用于修复当前需求表。
     latest: dict[str, RequirementRevision] = {}
-    # 每条版本记录会转换成前端图谱中的一个版本节点。
+    # 每条版本记录会转换成前端关系图中的一个版本节点。
     for rev in revisions:
         latest[rev.req_code] = rev
 
@@ -1223,7 +1212,7 @@ def _repair_document_requirements_from_revisions(db: Session, document_id: int) 
         db.commit()
 
 
-# 为已有文档补全缺失的需求来源证据，并同步更新图谱。
+# 为已有文档补全缺失的需求来源证据，并同步更新关系图。
 def ensure_document_evidences(db: Session, document_id: int) -> int:
     doc = db.get(UploadedDocument, int(document_id))
     if not doc:
@@ -1331,7 +1320,7 @@ def _parse_relations(text: str) -> list[dict[str, Any]]:
 
 
 
-# 根据需求编号推断其所属文档 ID，用于按需求编号查询图谱。
+# 根据需求编号推断其所属文档 ID，用于按需求编号查询关系图。
 def _infer_document_ids_for_focus(db: Session, focus_req_code: str) -> set[int]:
     focus_req_code = (focus_req_code or "").strip()
     if not focus_req_code:
@@ -1355,17 +1344,17 @@ def _infer_document_ids_for_focus(db: Session, focus_req_code: str) -> set[int]:
 
 
 
-# 基于 MySQL 中的文档、需求和版本记录构建前端影响波及图数据。
+# 基于 MySQL 中的文档、需求和版本记录构建前端需求变更追溯关系图数据。
 def build_requirement_version_graph(db: Session, req_code: str | None = None, document_id: int | None = None) -> dict[str, Any]:
-    # 该函数直接基于 MySQL 数据生成前端影响波及图。
+    # 该函数直接基于 MySQL 数据生成前端需求变更追溯关系图。
     focus_req_code = (req_code or "").strip()
     document_id = int(document_id) if document_id else None
 
     # 搜索规则：
-    # 1）输入文档ID：展示该文档的完整图谱；
+    # 1）输入文档ID：展示该文档的完整关系图；
     # 2）只输入需求编号 R1/R2：展示该需求自己的单链版本图；
     # 这样既满足“文档检索看全局”，也满足“需求检索看单链”。
-    # 只传需求编号时展示单链；传文档ID时展示完整文档图谱。
+    # 只传需求编号时展示单链；传文档ID时展示完整文档关系图。
     req_single_chain = bool(focus_req_code and not document_id)
     inferred_doc_ids: set[int] = set()
     if req_single_chain:
@@ -1373,10 +1362,10 @@ def build_requirement_version_graph(db: Session, req_code: str | None = None, do
 
     # 文档 ID 搜索时不能只筛 requirement_revisions.document_id。
     # 部分版本记录可能缺少 document_id，但 req_code 仍属于该文档；因此先找出该文档下的需求编号，
-    # 再按 req_code 拉取这些需求的完整版本链，避免搜索文档 ID 后图谱缺版本。
+    # 再按 req_code 拉取这些需求的完整版本链，避免搜索文档 ID 后关系图缺版本。
     doc_req_codes: set[str] = set()
     doc_id_by_req_code: dict[str, int] = {}
-    # 按文档查图谱时，先找该文档下所有需求编号，再拉完整版本链。
+    # 按文档查关系图时，先找该文档下所有需求编号，再拉完整版本链。
     # 文档查询时先找出该文档下所有 req_code，避免版本 document_id 缺失造成漏查。
     if document_id:
         req_rows = db.execute(
@@ -1410,7 +1399,7 @@ def build_requirement_version_graph(db: Session, req_code: str | None = None, do
         stmt = stmt.where(RequirementRevision.document_id.in_(sorted(inferred_doc_ids)))
     revisions = db.execute(stmt).scalars().all()
 
-    # 如果没有版本记录，就用当前需求临时构造 v1 节点，保证图谱不空白。
+    # 如果没有版本记录，就用当前需求临时构造 v1 节点，保证关系图不空白。
     if not revisions:
         req_stmt = select(Requirement).order_by(Requirement.req_code.asc())
         if document_id:
@@ -1464,7 +1453,7 @@ def build_requirement_version_graph(db: Session, req_code: str | None = None, do
     latest_by_req: dict[str, list[dict[str, Any]]] = {}
 
     # 第 0 列固定放上传文档节点，后面各列放需求版本节点。
-    # 图谱第 0 列是上传文档节点。
+    # 关系图第 0 列是上传文档节点。
     if documents:
         columns[0] = {"version_no": 0, "title": "上传需求文档", "count": len(documents)}
         for d in documents:
@@ -1547,9 +1536,9 @@ def build_requirement_version_graph(db: Session, req_code: str | None = None, do
             })
 
     if req_single_chain:
-        focus_msg = f" 当前按需求编号 {focus_req_code} 展示单链版本图谱。"
+        focus_msg = f" 当前按需求编号 {focus_req_code} 展示单链版本关系图。"
     elif focus_req_code:
-        focus_msg = " 当前按文档 ID 展示完整需求版本图谱。"
+        focus_msg = " 当前按文档 ID 展示完整需求版本关系图。"
     else:
         focus_msg = ""
     result = {
@@ -1560,11 +1549,11 @@ def build_requirement_version_graph(db: Session, req_code: str | None = None, do
         "columns": [columns[k] for k in sorted(columns)],
         "nodes": nodes,
         "edges": edges,
-        "summary": f"当前图谱基于上传需求文档和需求变更版本生成，共 {len(nodes)} 个节点、{len(edges)} 条关系线。{focus_msg}",
+        "summary": f"当前关系图基于上传需求文档和需求变更版本生成，共 {len(nodes)} 个节点、{len(edges)} 条关系线。{focus_msg}",
         "notes": [
             "最前面一列展示上传的需求文档节点，文档节点通过“提取”关系连接到从该文档中提取出的初始需求点。",
             "后续列展示需求被修改后的版本节点，同一 req_code 的版本之间使用变更链路连接。",
-            "输入文档ID时展示该文档完整图谱；只输入需求编号时展示该需求自己的单链版本图。",
+            "输入文档ID时展示该文档完整关系图；只输入需求编号时展示该需求自己的单链版本图。",
             "不同需求点之间不再绘制关系线，避免图中出现交叉线和误导性连接。",
         ],
     }

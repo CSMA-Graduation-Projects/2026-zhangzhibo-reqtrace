@@ -36,3 +36,6 @@ build/
 
 # Database temp
 *.sqlite3
+# Runtime uploaded/generated documents
+ai_service/uploaded_docs/*
+!ai_service/uploaded_docs/.gitkeep

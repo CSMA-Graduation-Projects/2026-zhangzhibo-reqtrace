@@ -39,12 +39,12 @@
                 <div class="compact-form">
                     <div>
                         <label class="form-label">需求文档</label>
-                        <input id="doc_file" type="file" class="form-control" accept=".docx,.txt,.md,.markdown,.csv,.json">
-                        <div class="form-text">仅支持docx文本类型需求文档。上传后进入文档列表，点击文档再维护该文档的需求点。</div>
+                        <input id="doc_file" type="file" class="form-control" accept=".docx">
+                        <div class="form-text">仅支持docx格式需求文档。上传后进入文档列表，点击文档再维护该文档的需求点。</div>
                     </div>
                     <div class="d-grid">
                         <button id="uploadDocBtn" class="btn btn-primary" onclick="uploadDoc()">
-                            <i class="bi bi-cloud-arrow-up"></i> 上传并扫描需求点
+                            <i class="bi bi-cloud-arrow-up"></i> 上传并提取需求点
                         </button>
                     </div>
                 </div>
@@ -93,7 +93,7 @@
                 <i class="bi bi-plus-circle"></i> 补充该文档需求点
             </button>
             <a class="btn btn-outline-secondary btn-sm" id="docGraphBtn" href="/ui/impact-graph">
-                <i class="bi bi-diagram-3"></i> 查看该文档波及图
+                <i class="bi bi-diagram-3"></i> 查看该文档追溯关系图
             </a>
             <button class="btn btn-outline-success btn-sm" onclick="downloadLatestChangedDocument(selectedDoc && selectedDoc.id)">
                 <i class="bi bi-file-earmark-word"></i> 下载最新变更后文档
@@ -164,7 +164,7 @@
         </div>
     </div>
     <div class="card-footer small text-muted">
-        修改需求后，影响波及图会在右侧追加该需求的新版本列；删除需求也会作为一个版本节点保留在链路中。
+        修改需求后，需求变更追溯关系图会在右侧追加该需求的新版本列；删除需求也会作为一个版本节点保留在链路中。
     </div>
 </div>
 
@@ -264,7 +264,7 @@
                 setUploadMsg("danger", "上传失败：" + (data.detail || JSON.stringify(data)));
                 return;
             }
-            setUploadMsg("success", `文档解析完成：提取 ${data.imported_count || 0} 条需求点，关系 ${data.relations_count || 0} 条`);
+            setUploadMsg("success", `文档解析完成：提取 ${data.imported_count || 0} 条需求点`);
             fileInput.value = "";
             await loadDocs(data.document_id);
         } finally {

@@ -19,6 +19,6 @@ class RequirementRevision(Base):
     event_id: Mapped[int] = mapped_column(Integer, index=True, nullable=True)      # 变更事件ID
     old_snapshot: Mapped[str] = mapped_column(Text, default="")                    # 变更前快照
     new_snapshot: Mapped[str] = mapped_column(Text, default="")                    # 变更后快照
-    relation_json: Mapped[str] = mapped_column(Text, default="")                   # 版本关系或图谱关系数据
+    relation_json: Mapped[str] = mapped_column(Text, default="")                   # 版本关系或关系图数据
 
     created_at: Mapped[str] = mapped_column(DateTime, server_default=func.now())   # 版本创建时间

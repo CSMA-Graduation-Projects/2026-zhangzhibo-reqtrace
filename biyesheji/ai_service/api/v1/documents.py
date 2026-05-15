@@ -12,7 +12,7 @@ from ai_service.db.schema import ensure_schema
 from ai_service.models.uploaded_document import UploadedDocument
 from ai_service.services.document_export_service import export_latest_changed_document
 from ai_service.services.document_service import (
-    ai_extract_requirements,
+    rule_extract_requirements,
     build_requirement_version_graph,
     create_uploaded_document_record,
     extract_text_from_file,
@@ -37,12 +37,16 @@ async def upload_requirement_document(file: UploadFile = File(...), db: Session 
     if not raw:
         raise HTTPException(status_code=400, detail="上传文件为空")
 
+    suffix = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if suffix != "docx":
+        raise HTTPException(status_code=400, detail="当前系统仅支持上传 docx 格式的需求文档")
+
     stored_name, path = save_upload_file(file.filename, raw)
     text = extract_text_from_file(path, file.filename)
     if not text.strip():
-        raise HTTPException(status_code=400, detail="文档文本解析失败，请优先上传 docx/txt/md 格式的需求文档")
+        raise HTTPException(status_code=400, detail="文档文本解析失败，请上传包含可解析文本的 docx 需求文档")
 
-    extracted = ai_extract_requirements(text)
+    extracted = rule_extract_requirements(text)
     doc = create_uploaded_document_record(
         db,
         original_filename=file.filename,

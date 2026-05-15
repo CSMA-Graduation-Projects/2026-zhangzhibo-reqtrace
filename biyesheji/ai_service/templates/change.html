@@ -3,7 +3,7 @@
 GET /api/v1/requirements/：             加载需求列表
 PUT /api/v1/requirements/{req_code}：   提交需求修改并生成变更事件和版本记录
 GET /api/v1/events?page=1&page_size=10：加载最近变更事件
-/ui/impact-graph/{req_code}：           跳转查看指定需求的影响波及图
+/ui/impact-graph/{req_code}：           跳转查看指定需求的需求变更追溯关系图
 -->
 {% extends "base.html" %}
 {% block title %}变更分析{% endblock %}
@@ -58,10 +58,10 @@ GET /api/v1/events?page=1&page_size=10：加载最近变更事件
                     </div>
                     <div class="d-grid gap-2">
                         <button id="submitChangeBtn" class="btn btn-primary" onclick="submitChange()">
-                            <i class="bi bi-lightning-charge"></i> 保存变更并生成波及图链路
+                            <i class="bi bi-lightning-charge"></i> 保存变更并生成追溯关系链路
                         </button>
                         <a id="graphLink" class="btn btn-outline-secondary" href="/ui/impact-graph">
-                            <i class="bi bi-diagram-3"></i> 查看完整影响波及图
+                            <i class="bi bi-diagram-3"></i> 查看完整需求变更追溯关系图
                         </a>
                     </div>
                 </div>
@@ -145,7 +145,7 @@ GET /api/v1/events?page=1&page_size=10：加载最近变更事件
             });
             const data = await res.json().catch(() => ({}));
             if(!res.ok){ setMsg("danger", "变更失败：" + (data.detail || JSON.stringify(data))); return; }
-            setMsg("success", `变更成功：${req_code} 已生成新版本，影响波及图已追加变更节点。`);
+            setMsg("success", `变更成功：${req_code} 已生成新版本，需求变更追溯关系图已追加变更节点。`);
             await Promise.all([loadRequirements(), loadEvents()]);
         } finally { setBusy(false); }
     }
